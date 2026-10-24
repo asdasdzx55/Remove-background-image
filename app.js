@@ -68,7 +68,7 @@ const translations = {
     toastModelLoaded: "تم تجهيز نموذج الذكاء الاصطناعي بنجاح!",
     toastCopiedPasted: "تم التقاط الصورة من الحافظة بنجاح!",
     toastZipReady: "تم إنشاء ملف ZIP وتنزيله بنجاح!",
-    toastError: "حدث خطأ أثناء معالجة الصورة."
+    toastError: "حدث خطأ أثناء معالجة الصورة"
   },
   en: {
     privacyGuarantee: "100% Private & Secure",
@@ -133,7 +133,7 @@ const translations = {
     toastModelLoaded: "AI Model loaded and ready!",
     toastCopiedPasted: "Image loaded from clipboard!",
     toastZipReady: "ZIP archive created and downloaded!",
-    toastError: "An error occurred while processing the image."
+    toastError: "An error occurred while processing the image"
   }
 };
 
@@ -147,13 +147,14 @@ const state = {
   isProcessing: false,
   queue: [],
   activeItemId: null,
-  splitPosition: 50, // 0 to 100 percentage
-  currentView: 'split', // split | sideBySide | resultOnly | originalOnly
-  zoomLevel: 100, // 100% default
-  currentBgType: 'checker', // checker | checker-dark | color | gradient
+  splitPosition: 50,
+  currentView: 'split',
+  zoomLevel: 100,
+  currentBgType: 'checker',
   currentColor: '#ffffff',
   currentGradient: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-  mainThreadPipeline: null // Fallback if Worker fails (e.g. file:// protocol)
+  mainThreadModel: null,
+  mainThreadProcessor: null
 };
 
 // --- 3. DOM Elements Cache ---
@@ -221,7 +222,6 @@ function setLanguage(lang) {
   elements.html.setAttribute('lang', lang);
   elements.html.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
 
-  // Update button display
   if (lang === 'ar') {
     elements.langFlag.textContent = '🇺🇸';
     elements.langCode.textContent = 'EN';
@@ -230,7 +230,6 @@ function setLanguage(lang) {
     elements.langCode.textContent = 'العربية';
   }
 
-  // Update all translatable elements with data-i18n
   document.querySelectorAll('[data-i18n]').forEach((el) => {
     const key = el.getAttribute('data-i18n');
     if (dict[key]) {
@@ -238,7 +237,6 @@ function setLanguage(lang) {
     }
   });
 
-  // Re-apply split slider position to account for dir change
   updateSplitSlider(state.splitPosition);
 }
 
@@ -250,7 +248,7 @@ function setTheme(theme) {
 }
 
 // --- 6. Toast System ---
-function showToast(message, type = 'info', duration = 3500) {
+function showToast(message, type = 'info', duration = 4000) {
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
   toast.textContent = message;
@@ -286,7 +284,6 @@ async function initHardwareAndWorker() {
     elements.hardwareLabel.textContent = 'WASM (CPU)';
   }
 
-  // Attempt initializing Web Worker with ES Modules
   try {
     const workerUrl = new URL('./worker.js', import.meta.url);
     state.worker = new Worker(workerUrl, { type: 'module' });
@@ -297,17 +294,17 @@ async function initHardwareAndWorker() {
       state.worker = null;
     };
 
-    // Pre-initialize pipeline in worker
+    // Pre-initialize RMBG-1.4 model
     state.worker.postMessage({ type: 'init', device: state.device });
   } catch (err) {
-    console.warn('Web Worker could not be instantiated (likely local file:// protocol), using main thread fallback.', err);
+    console.warn('Web Worker could not be instantiated, using main thread fallback.', err);
     state.worker = null;
   }
 }
 
 // --- 8. Worker Message Handler ---
 function handleWorkerMessage(e) {
-  const { type, id, status, message, data, maskData, channels, isFloat, width, height, error, device } = e.data;
+  const { type, id, status, message, data, maskData, maskWidth, maskHeight, originalWidth, originalHeight, error, device } = e.data;
 
   if (device) {
     state.device = device;
@@ -331,7 +328,7 @@ function handleWorkerMessage(e) {
       elements.progressPercentage.textContent = '99%';
     }
   } else if (type === 'result') {
-    handleInferenceComplete(id, maskData, channels, isFloat, width, height);
+    handleInferenceComplete(id, maskData, maskWidth, maskHeight, originalWidth, originalHeight);
   } else if (type === 'error') {
     handleInferenceError(id, error);
   }
@@ -362,19 +359,25 @@ function handleProgressUpdate(progressData) {
   }
 }
 
-// --- 10. Main Thread AI Fallback Execution (for file:// protocol) ---
+// --- 10. Main Thread AI Fallback Execution ---
 async function runMainThreadPipeline(item) {
   try {
     elements.progressSection.classList.remove('hidden');
     elements.progressTitle.textContent = translations[state.lang].loadingModelTitle;
 
-    // Dynamically import Transformers.js on main thread
-    const { pipeline, env, RawImage } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3');
+    const { AutoModel, AutoProcessor, RawImage, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3');
     env.allowLocalModels = false;
 
-    if (!state.mainThreadPipeline) {
-      state.mainThreadPipeline = await pipeline('image-segmentation', 'briaai/RMBG-1.4', {
+    if (!state.mainThreadProcessor) {
+      state.mainThreadProcessor = await AutoProcessor.from_pretrained('briaai/RMBG-1.4', {
+        progress_callback: (prog) => handleProgressUpdate(prog)
+      });
+    }
+
+    if (!state.mainThreadModel) {
+      state.mainThreadModel = await AutoModel.from_pretrained('briaai/RMBG-1.4', {
         device: state.device,
+        config: { model_type: 'custom' },
         progress_callback: (prog) => handleProgressUpdate(prog)
       });
     }
@@ -384,18 +387,20 @@ async function runMainThreadPipeline(item) {
     elements.progressPercentage.textContent = '99%';
 
     const rawImage = await RawImage.read(item.file);
-    const output = await state.mainThreadPipeline(rawImage);
+    const { pixel_values } = await state.mainThreadProcessor(rawImage);
+    const { output } = await state.mainThreadModel({ input: pixel_values });
 
-    let mask = Array.isArray(output) && output.length > 0 ? (output[0].mask || output[0]) : (output.mask || output);
-    if (mask.width !== rawImage.width || mask.height !== rawImage.height) {
-      mask = await mask.resize(rawImage.width, rawImage.height);
+    const tensorData = output.data;
+    const maskData = new Uint8ClampedArray(1024 * 1024);
+    for (let i = 0; i < tensorData.length; i++) {
+      maskData[i] = Math.round(Math.max(0, Math.min(1, tensorData[i])) * 255);
     }
 
     handleInferenceComplete(
       item.id,
-      mask.data.buffer,
-      mask.channels || 1,
-      mask.data instanceof Float32Array,
+      maskData.buffer,
+      1024,
+      1024,
       rawImage.width,
       rawImage.height
     );
@@ -406,38 +411,48 @@ async function runMainThreadPipeline(item) {
 }
 
 // --- 11. Compose Alpha Mask with Original Image Pixels ---
-function composeAlphaMask(origImg, maskDataBuffer, channels, isFloat, width, height) {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+function composeAlphaMask(origImg, maskBuffer, maskWidth, maskHeight, originalWidth, originalHeight) {
+  // 1. Create a 1024x1024 mask canvas
+  const maskCanvas = document.createElement('canvas');
+  maskCanvas.width = maskWidth;
+  maskCanvas.height = maskHeight;
+  const maskCtx = maskCanvas.getContext('2d');
+  const maskImgData = maskCtx.createImageData(maskWidth, maskHeight);
+
+  const maskArray = new Uint8ClampedArray(maskBuffer);
+  const d = maskImgData.data;
+  for (let i = 0; i < maskArray.length; i++) {
+    const idx = i * 4;
+    d[idx] = 255;
+    d[idx + 1] = 255;
+    d[idx + 2] = 255;
+    d[idx + 3] = maskArray[i]; // Alpha channel
+  }
+  maskCtx.putImageData(maskImgData, 0, 0);
+
+  // 2. Create the final output canvas at exact original image dimensions
+  const finalCanvas = document.createElement('canvas');
+  finalCanvas.width = originalWidth;
+  finalCanvas.height = originalHeight;
+  const finalCtx = finalCanvas.getContext('2d');
 
   // Draw original image at native 1:1 resolution
-  ctx.drawImage(origImg, 0, 0, width, height);
+  finalCtx.drawImage(origImg, 0, 0, originalWidth, originalHeight);
 
-  // Extract pixel buffer
-  const imgData = ctx.getImageData(0, 0, width, height);
-  const pixels = imgData.data;
+  // Mask original image using hardware-accelerated smooth bilinear interpolation
+  finalCtx.globalCompositeOperation = 'destination-in';
+  finalCtx.imageSmoothingEnabled = true;
+  finalCtx.imageSmoothingQuality = 'high';
+  finalCtx.drawImage(maskCanvas, 0, 0, originalWidth, originalHeight);
 
-  // Reconstruct mask array
-  const maskArray = isFloat ? new Float32Array(maskDataBuffer) : new Uint8Array(maskDataBuffer);
+  // Reset composite operation
+  finalCtx.globalCompositeOperation = 'source-over';
 
-  // Apply alpha channel from mask to original pixels
-  for (let i = 0, j = 0; i < pixels.length; i += 4, j += channels) {
-    let alpha = maskArray[j];
-    if (isFloat && alpha <= 1.0) {
-      alpha = Math.round(alpha * 255);
-    }
-    // Set exact transparency while leaving R, G, B completely untouched!
-    pixels[i + 3] = Math.max(0, Math.min(255, alpha));
-  }
-
-  ctx.putImageData(imgData, 0, 0);
-  return canvas;
+  return finalCanvas;
 }
 
 // --- 12. Inference Completion Handler ---
-async function handleInferenceComplete(id, maskData, channels, isFloat, width, height) {
+async function handleInferenceComplete(id, maskData, maskWidth, maskHeight, originalWidth, originalHeight) {
   elements.progressSection.classList.add('hidden');
   state.isProcessing = false;
 
@@ -445,7 +460,6 @@ async function handleInferenceComplete(id, maskData, channels, isFloat, width, h
   if (!item) return;
 
   try {
-    // 1. Load original image into Image element to composite
     const origImg = new Image();
     origImg.src = item.origUrl;
     await new Promise((resolve, reject) => {
@@ -453,29 +467,31 @@ async function handleInferenceComplete(id, maskData, channels, isFloat, width, h
       origImg.onerror = reject;
     });
 
-    // 2. Perform pixel-perfect composition on canvas
-    const composedCanvas = composeAlphaMask(origImg, maskData, channels, isFloat, width, height);
+    const composedCanvas = composeAlphaMask(
+      origImg,
+      maskData,
+      maskWidth,
+      maskHeight,
+      originalWidth,
+      originalHeight
+    );
 
-    // 3. Convert to lossless PNG blob
     composedCanvas.toBlob((blob) => {
       if (!blob) throw new Error('Could not generate PNG blob');
 
       item.resultBlob = blob;
       item.resultUrl = URL.createObjectURL(blob);
-      item.width = width;
-      item.height = height;
+      item.width = originalWidth;
+      item.height = originalHeight;
       item.status = 'completed';
 
       updateQueueUI();
 
-      // If active item, display immediately in workspace
       if (state.activeItemId === id) {
         displayActiveItem(item);
       }
 
       showToast(translations[state.lang].statusComplete, 'success');
-
-      // Process next in batch queue if any
       processNextQueueItem();
     }, 'image/png');
   } catch (err) {
@@ -511,7 +527,7 @@ function addFilesToQueue(files) {
     resultUrl: null,
     width: 0,
     height: 0,
-    status: 'pending' // pending | processing | completed | error
+    status: 'pending'
   }));
 
   if (newItems.length === 0) return;
@@ -524,7 +540,6 @@ function addFilesToQueue(files) {
   elements.queueSection.classList.remove('hidden');
   updateQueueUI();
 
-  // Trigger processing if not already busy
   if (!state.isProcessing) {
     processNextQueueItem();
   }
@@ -535,7 +550,6 @@ function processNextQueueItem() {
 
   const nextItem = state.queue.find((q) => q.status === 'pending');
   if (!nextItem) {
-    // Check if any completed items exist to enable ZIP button
     const hasCompleted = state.queue.some((q) => q.status === 'completed');
     elements.downloadAllZipBtn.disabled = !hasCompleted;
     return;
@@ -633,7 +647,6 @@ function removeQueueItem(id) {
 function displayActiveItem(item) {
   elements.workspaceSection.classList.remove('hidden');
 
-  // Set images
   elements.beforeImg.src = item.origUrl;
   elements.dualBeforeImg.src = item.origUrl;
 
@@ -644,7 +657,6 @@ function displayActiveItem(item) {
     elements.downloadTransparentBtn.disabled = false;
     elements.downloadWithBgBtn.disabled = false;
   } else {
-    // Show original as placeholder until inference finishes
     elements.afterImg.src = item.origUrl;
     elements.dualAfterImg.src = item.origUrl;
     elements.singleImg.src = item.origUrl;
@@ -652,7 +664,6 @@ function displayActiveItem(item) {
     elements.downloadWithBgBtn.disabled = true;
   }
 
-  // Update Metadata
   if (item.width && item.height) {
     elements.metaDimensions.textContent = `${item.width} × ${item.height} px`;
   } else {
@@ -660,7 +671,6 @@ function displayActiveItem(item) {
   }
   elements.metaFileSize.textContent = item.size;
 
-  // Reset zoom & view
   setZoom(100);
   applyBackgroundPreset(state.currentBgType, state.currentColor, state.currentGradient);
   updateSplitSlider(state.splitPosition);
@@ -673,8 +683,6 @@ function updateSplitSlider(posPercentage) {
 
   elements.comparisonContainer.style.setProperty('--split-pos', pos);
   elements.sliderHandle.style.left = pos;
-
-  // Clip path driven by CSS
   elements.afterLayer.style.clipPath = `inset(0 0 0 ${pos})`;
 }
 
@@ -692,7 +700,6 @@ function handleSliderMove(clientX) {
 function initSliderEvents() {
   const container = elements.comparisonContainer;
 
-  // Mouse drag
   container.addEventListener('mousedown', (e) => {
     isDragging = true;
     handleSliderMove(e.clientX);
@@ -707,7 +714,6 @@ function initSliderEvents() {
     isDragging = false;
   });
 
-  // Touch drag for mobile/tablet
   container.addEventListener('touchstart', (e) => {
     if (e.touches.length > 0) {
       isDragging = true;
@@ -752,7 +758,7 @@ function setViewMode(view) {
   }
 }
 
-// --- 17. Zoom & Pan Controls ---
+// --- 17. Zoom Controls ---
 function setZoom(level) {
   state.zoomLevel = Math.max(50, Math.min(400, level));
   elements.zoomLevelText.textContent = `${state.zoomLevel}%`;
@@ -790,7 +796,6 @@ function applyBackgroundPreset(type, color, gradient) {
     }
   });
 
-  // Update active state in chips
   elements.bgChips.forEach((chip) => {
     const chipType = chip.getAttribute('data-bg-type');
     const chipColor = chip.getAttribute('data-color');
@@ -838,24 +843,20 @@ async function handleDownloadWithBg() {
   canvas.height = item.height;
   const ctx = canvas.getContext('2d');
 
-  // Fill Background
   if (state.currentBgType === 'color') {
     ctx.fillStyle = state.currentColor;
     ctx.fillRect(0, 0, item.width, item.height);
   } else if (state.currentBgType === 'gradient') {
     const grad = ctx.createLinearGradient(0, 0, item.width, item.height);
-    // Parse gradient or default sunset
     grad.addColorStop(0, '#f093fb');
     grad.addColorStop(1, '#f5576c');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, item.width, item.height);
   } else {
-    // If checker is selected, default to clean white for solid download
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, item.width, item.height);
   }
 
-  // Draw transparent image on top
   const resImg = new Image();
   resImg.src = item.resultUrl;
   await new Promise((resolve) => { resImg.onload = resolve; });
@@ -892,7 +893,6 @@ async function handleBatchZipDownload() {
 
 // --- 20. Sample Images Provider ---
 async function loadSampleImage(sampleType) {
-  // Built-in high quality sample photos (royalty-free Unsplash CDN)
   const sampleUrls = {
     portrait: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80',
     product: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=800&q=80',
@@ -916,7 +916,6 @@ async function loadSampleImage(sampleType) {
 
 // --- 21. Event Listeners Initialization ---
 function initEventListeners() {
-  // Language & Theme Toggle
   elements.langToggleBtn.addEventListener('click', () => {
     setLanguage(state.lang === 'ar' ? 'en' : 'ar');
   });
@@ -925,7 +924,6 @@ function initEventListeners() {
     setTheme(state.theme === 'dark' ? 'light' : 'dark');
   });
 
-  // Dropzone & File Pickers
   elements.browseBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     elements.fileInput.click();
@@ -940,7 +938,6 @@ function initEventListeners() {
     elements.fileInput.value = '';
   });
 
-  // Drag and Drop
   ['dragenter', 'dragover'].forEach((eventName) => {
     elements.dropzone.addEventListener(eventName, (e) => {
       e.preventDefault();
@@ -963,7 +960,6 @@ function initEventListeners() {
     }
   });
 
-  // Global Paste (Ctrl + V)
   window.addEventListener('paste', (e) => {
     const items = (e.clipboardData || e.originalEvent.clipboardData).items;
     const pastedFiles = [];
@@ -979,7 +975,6 @@ function initEventListeners() {
     }
   });
 
-  // Sample Buttons
   elements.sampleButtons.forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -988,7 +983,6 @@ function initEventListeners() {
     });
   });
 
-  // Queue Actions
   elements.downloadAllZipBtn.addEventListener('click', handleBatchZipDownload);
   elements.clearQueueBtn.addEventListener('click', () => {
     state.queue.forEach((q) => {
@@ -1001,7 +995,6 @@ function initEventListeners() {
     elements.workspaceSection.classList.add('hidden');
   });
 
-  // View Mode Buttons
   elements.viewModeGroup.addEventListener('click', (e) => {
     const btn = e.target.closest('.segment-btn');
     if (!btn) return;
@@ -1009,12 +1002,10 @@ function initEventListeners() {
     setViewMode(view);
   });
 
-  // Zoom Buttons
   elements.zoomInBtn.addEventListener('click', () => setZoom(state.zoomLevel + 25));
   elements.zoomOutBtn.addEventListener('click', () => setZoom(state.zoomLevel - 25));
   elements.zoomResetBtn.addEventListener('click', () => setZoom(100));
 
-  // Background Chips
   elements.bgChips.forEach((chip) => {
     chip.addEventListener('click', () => {
       const type = chip.getAttribute('data-bg-type');
@@ -1024,19 +1015,16 @@ function initEventListeners() {
     });
   });
 
-  // Custom Color Input
   elements.customColorInput.addEventListener('input', (e) => {
     applyBackgroundPreset('color', e.target.value);
   });
 
-  // Download Buttons
   elements.downloadTransparentBtn.addEventListener('click', handleDownloadTransparent);
   elements.downloadWithBgBtn.addEventListener('click', handleDownloadWithBg);
   elements.newImageBtn.addEventListener('click', () => {
     elements.fileInput.click();
   });
 
-  // Init Slider Interactions
   initSliderEvents();
 }
 

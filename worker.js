@@ -1,23 +1,24 @@
 /**
  * خلفيتي AI - Dedicated AI Background Removal Web Worker
- * Uses Transformers.js with briaai/RMBG-1.4 model
+ * Uses Transformers.js with briaai/RMBG-1.4 via AutoModel & AutoProcessor
  * WebGPU acceleration with seamless WebAssembly (WASM) fallback
  */
 
-import { pipeline, env, RawImage } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3';
+import { AutoModel, AutoProcessor, RawImage, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3';
 
 // Force Transformers.js to load remote models directly from Hugging Face hub
 env.allowLocalModels = false;
 
-// Singleton pipeline instance
-let segmenter = null;
+// Singleton model & processor instances
+let model = null;
+let processor = null;
 let currentDevice = 'wasm';
 
 /**
- * Initializes or retrieves the RMBG-1.4 segmentation pipeline
+ * Initializes or retrieves the RMBG-1.4 AutoModel & AutoProcessor
  */
-async function getSegmenter(preferredDevice = 'webgpu', onProgress) {
-  if (segmenter) return segmenter;
+async function getModelAndProcessor(preferredDevice = 'webgpu') {
+  if (model && processor) return { model, processor };
 
   const hasWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator && !!navigator.gpu;
   const targetDevice = (preferredDevice === 'webgpu' && hasWebGPU) ? 'webgpu' : 'wasm';
@@ -30,13 +31,19 @@ async function getSegmenter(preferredDevice = 'webgpu', onProgress) {
       message: `Initializing AI Engine with ${targetDevice.toUpperCase()}...`
     });
 
-    segmenter = await pipeline('image-segmentation', 'briaai/RMBG-1.4', {
-      device: targetDevice,
+    // 1. Load Preprocessor
+    processor = await AutoProcessor.from_pretrained('briaai/RMBG-1.4', {
       progress_callback: (progressData) => {
-        self.postMessage({
-          type: 'progress',
-          data: progressData
-        });
+        self.postMessage({ type: 'progress', data: progressData });
+      }
+    });
+
+    // 2. Load Model with custom model_type config
+    model = await AutoModel.from_pretrained('briaai/RMBG-1.4', {
+      device: targetDevice,
+      config: { model_type: 'custom' },
+      progress_callback: (progressData) => {
+        self.postMessage({ type: 'progress', data: progressData });
       }
     });
 
@@ -48,10 +55,10 @@ async function getSegmenter(preferredDevice = 'webgpu', onProgress) {
       message: 'AI Model ready for inference!'
     });
 
-    return segmenter;
+    return { model, processor };
   } catch (error) {
     if (targetDevice === 'webgpu') {
-      console.warn('WebGPU pipeline allocation failed, falling back to WebAssembly (WASM)...', error);
+      console.warn('WebGPU allocation failed, falling back to WebAssembly (WASM)...', error);
       self.postMessage({
         type: 'status',
         status: 'fallback',
@@ -59,13 +66,17 @@ async function getSegmenter(preferredDevice = 'webgpu', onProgress) {
         message: 'WebGPU unavailable, switching to WebAssembly (CPU)...'
       });
 
-      segmenter = await pipeline('image-segmentation', 'briaai/RMBG-1.4', {
-        device: 'wasm',
+      processor = await AutoProcessor.from_pretrained('briaai/RMBG-1.4', {
         progress_callback: (progressData) => {
-          self.postMessage({
-            type: 'progress',
-            data: progressData
-          });
+          self.postMessage({ type: 'progress', data: progressData });
+        }
+      });
+
+      model = await AutoModel.from_pretrained('briaai/RMBG-1.4', {
+        device: 'wasm',
+        config: { model_type: 'custom' },
+        progress_callback: (progressData) => {
+          self.postMessage({ type: 'progress', data: progressData });
         }
       });
 
@@ -77,7 +88,7 @@ async function getSegmenter(preferredDevice = 'webgpu', onProgress) {
         message: 'AI Model ready (WASM)!'
       });
 
-      return segmenter;
+      return { model, processor };
     }
     throw error;
   }
@@ -88,7 +99,7 @@ async function getSegmenter(preferredDevice = 'webgpu', onProgress) {
  */
 async function processImage(id, blob, device = 'webgpu') {
   try {
-    const pipelineInstance = await getSegmenter(device);
+    const { model: modelInstance, processor: procInstance } = await getModelAndProcessor(device);
 
     self.postMessage({
       type: 'status',
@@ -100,39 +111,28 @@ async function processImage(id, blob, device = 'webgpu') {
     // 1. Read input image blob into Transformers.js RawImage
     const rawImage = await RawImage.read(blob);
 
-    // 2. Run segmentation pipeline
-    const output = await pipelineInstance(rawImage);
+    // 2. Preprocess image into model input tensors
+    const { pixel_values } = await procInstance(rawImage);
 
-    // 3. Extract mask object
-    let mask = null;
-    if (Array.isArray(output) && output.length > 0) {
-      mask = output[0].mask || output[0];
-    } else if (output && output.mask) {
-      mask = output.mask;
-    } else {
-      mask = output;
+    // 3. Run model inference
+    const { output } = await modelInstance({ input: pixel_values });
+
+    // 4. Extract output probability tensor (1 x 1 x 1024 x 1024)
+    const tensorData = output.data;
+    const maskData = new Uint8ClampedArray(1024 * 1024);
+    for (let i = 0; i < tensorData.length; i++) {
+      // Clamp between 0 and 1, then scale to 0-255
+      maskData[i] = Math.round(Math.max(0, Math.min(1, tensorData[i])) * 255);
     }
 
-    if (!mask) {
-      throw new Error('Could not extract segmentation mask from model output.');
-    }
-
-    // 4. Ensure mask dimensions precisely match original image
-    if (mask.width !== rawImage.width || mask.height !== rawImage.height) {
-      await mask.resize(rawImage.width, rawImage.height);
-    }
-
-    const maskData = mask.data;
-    const isFloat = maskData instanceof Float32Array;
-
-    // Send mask array buffer back via zero-copy transfer
+    // 5. Send 1024x1024 mask buffer and original dimensions back via zero-copy transfer
     self.postMessage({
       type: 'result',
       id,
-      width: rawImage.width,
-      height: rawImage.height,
-      channels: mask.channels || 1,
-      isFloat,
+      maskWidth: 1024,
+      maskHeight: 1024,
+      originalWidth: rawImage.width,
+      originalHeight: rawImage.height,
       maskData: maskData.buffer,
       device: currentDevice
     }, [maskData.buffer]);
@@ -153,7 +153,7 @@ self.onmessage = async (e) => {
 
   if (type === 'init') {
     try {
-      await getSegmenter(device || 'webgpu');
+      await getModelAndProcessor(device || 'webgpu');
     } catch (err) {
       self.postMessage({ type: 'error', error: err.message });
     }
