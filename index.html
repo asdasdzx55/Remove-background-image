@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>خلفيتي AI | إزالة خلفية الصور بالذكاء الاصطناعي مجاناً وبدقة فائقة</title>
+  
+  <!-- SEO & Social Meta Tags -->
+  <meta name="description" content="أداة ويب احترافية ومجانية بالكامل لإزالة خلفية الصور باستخدام أحدث نماذج الذكاء الاصطناعي RMBG-1.4 مباشرة داخل متصفحك دون الحاجة لخوادم مع الحفاظ على الخصوصية والدقة الأصلية.">
+  <meta name="keywords" content="إزالة الخلفية, تفريغ الصور, ذكاء اصطناعي, RMBG-1.4, حذف الخلفية, خلفية شفافة, WebGPU, Transformers.js">
+  <meta property="og:title" content="خلفيتي AI - عزل الخلفية بالذكاء الاصطناعي">
+  <meta property="og:description" content="احصل على صور مفرغة شفافة بدقة فائقة 100% داخل جهازك دون رفع أي بيانات إلى خوادم خارجية.">
+  <meta property="og:type" content="website">
+
+  <!-- Favicon SVG -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%236366f1'><path d='M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14zm-5.04-6.71l-2.75 3.54-1.96-2.36L6.5 17h11l-3.54-4.71z'/><circle cx='17.5' cy='6.5' r='2.5' fill='%2310b981'/></svg>">
+
+  <!-- Google Fonts: Cairo for Arabic & Inter for English -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- JSZip CDN for Batch ZIP Export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+  <!-- Main Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Background Glow Orbs -->
+  <div class="bg-glow glow-1"></div>
+  <div class="bg-glow glow-2"></div>
+
+  <!-- Header Banner: Privacy Notice -->
+  <div class="privacy-banner">
+    <div class="container banner-inner">
+      <div class="banner-badge">
+        <svg viewBox="0 0 24 24" class="icon-sm" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+        <span data-i18n="privacyGuarantee">خصوصية وأمان 100%</span>
+      </div>
+      <p class="banner-text" data-i18n="privacyDesc">
+        جميع عمليات المعالجة تتم محلياً بالكامل داخل متصفحك (Client-side AI). صورك لا تُرفع إلى أي خادم خارجي نهائياً!
+      </p>
+    </div>
+  </div>
+
+  <!-- Main Header Navigation -->
+  <header class="app-header">
+    <div class="container header-inner">
+      <div class="brand">
+        <div class="logo-box">
+          <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="4" />
+            <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/>
+            <path d="M21 15l-5-5L5 21"/>
+            <path d="M14 14l2-2 4 4" stroke-dasharray="2 2"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <div class="brand-title">
+            <span class="gradient-text" data-i18n="appTitle">خلفيتي AI</span>
+            <span class="badge badge-accent">RMBG-1.4</span>
+          </div>
+          <span class="brand-subtitle" data-i18n="appSubtitle">إزالة الخلفيات بالذكاء الاصطناعي الفائق</span>
+        </div>
+      </div>
+
+      <!-- Header Controls -->
+      <div class="header-actions">
+        <!-- Hardware Acceleration Status Pill -->
+        <div class="hardware-pill" id="hardwarePill" title="حالة تسريع العتاد">
+          <span class="pulse-dot"></span>
+          <span id="hardwareLabel">WebGPU / WASM</span>
+        </div>
+
+        <!-- Language Switcher -->
+        <button type="button" class="btn-icon" id="langToggleBtn" title="تغيير اللغة / Change Language">
+          <span class="lang-flag" id="langFlag">🇺🇸</span>
+          <span class="lang-code" id="langCode">EN</span>
+        </button>
+
+        <!-- Dark/Light Theme Toggle -->
+        <button type="button" class="btn-icon" id="themeToggleBtn" title="تبديل المظهر">
+          <svg class="icon theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="5"/>
+            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          </svg>
+          <svg class="icon theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+          </svg>
+        </button>
+
+        <!-- GitHub Link Button -->
+        <a href="https://github.com" target="_blank" rel="noopener noreferrer" class="btn-icon" id="githubLink" title="مستودع المشروع على GitHub">
+          <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="container main-content">
+
+    <!-- Hero Section -->
+    <section class="hero-section text-center">
+      <div class="hero-pill-badge">
+        <span class="sparkle">✨</span>
+        <span data-i18n="heroBadge">مدعوم بنموذج Bria AI RMBG-1.4 فائق الحساسية</span>
+      </div>
+      <h1 class="hero-headline">
+        <span data-i18n="heroTitlePart1">عزل خلفيات الصور بدقة خرافية</span><br>
+        <span class="gradient-text" data-i18n="heroTitlePart2">بضغطة واحدة وخلال ثوانٍ</span>
+      </h1>
+      <p class="hero-description" data-i18n="heroDesc">
+        تقنية ذكاء اصطناعي متطورة تعزل أدق التفاصيل كخصلات الشعر وحواف الملابس فوراً داخل متصفحك. بدون اشتراكات، بدون حد أقصى، وبدون خوادم!
+      </p>
+
+      <!-- Key Capabilities Tags -->
+      <div class="hero-tags">
+        <span class="tag-chip"><span class="check">✓</span> <span data-i18n="featureOriginalRes">أبعاد وجودة أصلية 100%</span></span>
+        <span class="tag-chip"><span class="check">✓</span> <span data-i18n="featureHairEdges">حفظ خصلات الشعر والتفاصيل الدقيقة</span></span>
+        <span class="tag-chip"><span class="check">✓</span> <span data-i18n="featureFastWebGPU">تسريع فائق عبر WebGPU/WASM</span></span>
+        <span class="tag-chip"><span class="check">✓</span> <span data-i18n="featureBatchReady">معالجة دفعات متعددة</span></span>
+      </div>
+    </section>
+
+    <!-- Upload Area Card -->
+    <section class="upload-section">
+      <div class="upload-dropzone" id="dropzone">
+        <input type="file" id="fileInput" multiple accept="image/png, image/jpeg, image/jpg, image/webp" class="visually-hidden">
+        
+        <div class="dropzone-content">
+          <div class="dropzone-icon-wrapper">
+            <svg class="dropzone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </div>
+
+          <h3 class="dropzone-title" data-i18n="dropzoneTitle">اسحب وأفلت صورك هنا، أو انقر للاختيار</h3>
+          <p class="dropzone-subtitle" data-i18n="dropzoneSubtitle">يدعم صيغ PNG, JPG, JPEG, WEBP حتى أعلى دقة ممكنة</p>
+
+          <div class="dropzone-cta-row">
+            <button type="button" class="btn btn-primary" id="browseBtn">
+              <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <circle cx="8.5" cy="8.5" r="1.5"/>
+                <polyline points="21 15 16 10 5 21"/>
+              </svg>
+              <span data-i18n="browseBtn">اختر صورة من جهازك</span>
+            </button>
+
+            <!-- Paste Hint Pill -->
+            <div class="paste-hint-pill">
+              <span class="kbd">Ctrl</span> + <span class="kbd">V</span>
+              <span data-i18n="pasteHint">أو الصق مباشرة من الحافظة</span>
+            </div>
+          </div>
+
+          <!-- Sample Images Bar -->
+          <div class="samples-row">
+            <span class="samples-label" data-i18n="trySampleLabel">أو جرب صورة نموذجية:</span>
+            <div class="samples-list" id="sampleImagesList">
+              <button type="button" class="sample-btn" data-sample="portrait">
+                <span class="sample-emoji">👤</span>
+                <span data-i18n="samplePortrait">شخصية (شعر معقد)</span>
+              </button>
+              <button type="button" class="sample-btn" data-sample="product">
+                <span class="sample-emoji">👟</span>
+                <span data-i18n="sampleProduct">منتج تجاري</span>
+              </button>
+              <button type="button" class="sample-btn" data-sample="car">
+                <span class="sample-emoji">🚗</span>
+                <span data-i18n="sampleCar">سيارة</span>
+              </button>
+              <button type="button" class="sample-btn" data-sample="pet">
+                <span class="sample-emoji">🐱</span>
+                <span data-i18n="samplePet">حيوان أليف</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Global Model Download & Processing Progress Bar Card (Hidden by default) -->
+    <section class="progress-section hidden" id="progressSection">
+      <div class="progress-card">
+        <div class="progress-header">
+          <div class="progress-status-info">
+            <div class="spinner-small" id="progressSpinner"></div>
+            <div>
+              <h4 class="progress-title" id="progressTitle" data-i18n="loadingModelTitle">جاري تحميل النموذج الذكي في المتصفح...</h4>
+              <p class="progress-subtitle" id="progressSubtitle" data-i18n="loadingModelSubtitle">يحدث هذا لمرة واحدة فقط ويتم حفظه تلقائياً في ذاكرة المتصفح</p>
+            </div>
+          </div>
+          <div class="progress-metrics">
+            <span class="progress-percentage" id="progressPercentage">0%</span>
+            <span class="progress-bytes" id="progressBytes">0.0 MB / 42.0 MB</span>
+          </div>
+        </div>
+
+        <!-- Progress Bar Track -->
+        <div class="progress-track">
+          <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Multi-Image Batch Queue Section (Shown when files are in queue) -->
+    <section class="queue-section hidden" id="queueSection">
+      <div class="queue-card">
+        <div class="queue-header">
+          <div class="queue-title-group">
+            <h3 class="queue-title">
+              <span data-i18n="queueTitle">قائمة الصور والمعالجة الجماعية</span>
+              <span class="badge badge-neutral" id="queueCountBadge">0</span>
+            </h3>
+            <p class="queue-desc" data-i18n="queueDesc">اضغط على أي صورة لعرضها وإجراء المقارنة أو التعديل</p>
+          </div>
+          <div class="queue-actions">
+            <button type="button" class="btn btn-secondary btn-sm" id="downloadAllZipBtn" disabled>
+              <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+              </svg>
+              <span data-i18n="downloadZipBtn">تحميل الكل (ملف ZIP)</span>
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm" id="clearQueueBtn" data-i18n="clearQueueBtn">
+              مسح الكل
+            </button>
+          </div>
+        </div>
+
+        <!-- Horizontal scrollable image queue chips -->
+        <div class="queue-list" id="queueList"></div>
+      </div>
+    </section>
+
+    <!-- Interactive Workspace & Comparison Preview (Shown when an image is active) -->
+    <section class="workspace-section hidden" id="workspaceSection">
+      
+      <!-- Top Workspace Toolbar -->
+      <div class="workspace-toolbar">
+        <!-- View Mode Switcher -->
+        <div class="toolbar-group">
+          <label class="toolbar-label" data-i18n="viewModeLabel">طريقة العرض:</label>
+          <div class="segmented-control" id="viewModeGroup">
+            <button type="button" class="segment-btn active" data-view="split" data-i18n="viewSplit">
+              <svg viewBox="0 0 24 24" class="segment-icon" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <line x1="12" y1="3" x2="12" y2="21"/>
+              </svg>
+              <span>مقارنة منزلقة</span>
+            </button>
+            <button type="button" class="segment-btn" data-view="sideBySide" data-i18n="viewSide">
+              <svg viewBox="0 0 24 24" class="segment-icon" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="4" width="9" height="16" rx="2"/>
+                <rect x="13" y="4" width="9" height="16" rx="2"/>
+              </svg>
+              <span>جنباً إلى جنب</span>
+            </button>
+            <button type="button" class="segment-btn" data-view="resultOnly" data-i18n="viewResult">
+              <svg viewBox="0 0 24 24" class="segment-icon" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <path d="M9 12l2 2 4-4"/>
+              </svg>
+              <span>النتيجة فقط</span>
+            </button>
+            <button type="button" class="segment-btn" data-view="originalOnly" data-i18n="viewOriginal">
+              <svg viewBox="0 0 24 24" class="segment-icon" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+              </svg>
+              <span>الأصلية</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Zoom Controls -->
+        <div class="toolbar-group">
+          <label class="toolbar-label" data-i18n="zoomLabel">التقريب:</label>
+          <div class="zoom-controls">
+            <button type="button" class="btn-icon-sm" id="zoomOutBtn" title="تصغير">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+            <span class="zoom-level" id="zoomLevelText">100%</span>
+            <button type="button" class="btn-icon-sm" id="zoomInBtn" title="تكبير">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+            <button type="button" class="btn-icon-sm" id="zoomResetBtn" title="إعادة ضبط">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 109-9 9.75 9.75 0 00-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Stage Container: houses the interactive split-slider or side-by-side view -->
+      <div class="workspace-stage" id="workspaceStage">
+        
+        <!-- Comparison Split View -->
+        <div class="comparison-stage-wrap" id="splitStageWrap">
+          <div class="comparison-container" id="comparisonContainer">
+            <!-- Layer 1: Original Image (Before) -->
+            <div class="layer layer-before">
+              <img id="beforeImg" alt="الصورة الأصلية" draggable="false">
+              <div class="layer-badge badge-before" data-i18n="badgeBefore">قبل (الأصلية)</div>
+            </div>
+
+            <!-- Layer 2: Processed Image with Chosen Background (After) -->
+            <div class="layer layer-after" id="afterLayer">
+              <div class="custom-bg-surface" id="customBgSurface">
+                <img id="afterImg" alt="الصورة بعد إزالة الخلفية" draggable="false">
+              </div>
+              <div class="layer-badge badge-after" data-i18n="badgeAfter">بعد (المعزولة)</div>
+            </div>
+
+            <!-- Draggable Split Divider Line & Thumb -->
+            <div class="slider-handle" id="sliderHandle">
+              <div class="slider-line"></div>
+              <div class="slider-thumb" id="sliderThumb">
+                <svg viewBox="0 0 24 24" class="slider-arrow-icon" fill="currentColor">
+                  <path d="M8 7l-5 5 5 5V7zm8 0v10l5-5-5-5z"/>
+                </svg>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Side-by-Side Dual View (Alternative View Mode) -->
+        <div class="dual-stage-wrap hidden" id="dualStageWrap">
+          <div class="dual-panel">
+            <span class="dual-panel-tag" data-i18n="badgeBefore">قبل (الأصلية)</span>
+            <div class="dual-panel-img-box">
+              <img id="dualBeforeImg" alt="الأصلية">
+            </div>
+          </div>
+          <div class="dual-panel">
+            <span class="dual-panel-tag" data-i18n="badgeAfter">بعد (المعزولة)</span>
+            <div class="dual-panel-img-box custom-bg-surface" id="dualBgSurface">
+              <img id="dualAfterImg" alt="المعزولة">
+            </div>
+          </div>
+        </div>
+
+        <!-- Single View Wrap (Result Only / Original Only) -->
+        <div class="single-stage-wrap hidden" id="singleStageWrap">
+          <div class="single-panel-img-box custom-bg-surface" id="singleBgSurface">
+            <img id="singleImg" alt="معاينة">
+          </div>
+        </div>
+      </div>
+
+      <!-- Background Switcher Bar -->
+      <div class="bg-switcher-bar">
+        <div class="bg-switcher-title">
+          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2.69l5.66 5.66a8 8 0 11-11.31 0z"/>
+          </svg>
+          <span data-i18n="bgSwitcherTitle">تغيير خلفية المعاينة والتصدير:</span>
+        </div>
+
+        <div class="bg-presets-list" id="bgPresetsList">
+          <!-- Preset: Transparent (Checkered Light) -->
+          <button type="button" class="bg-chip active" data-bg-type="checker" title="شفاف القياسي">
+            <span class="swatch swatch-checker"></span>
+            <span class="swatch-label" data-i18n="bgTransparent">شفاف</span>
+          </button>
+
+          <!-- Preset: Dark Checkerboard -->
+          <button type="button" class="bg-chip" data-bg-type="checker-dark" title="شفاف داكن">
+            <span class="swatch swatch-checker-dark"></span>
+            <span class="swatch-label" data-i18n="bgTransparentDark">شفاف داكن</span>
+          </button>
+
+          <!-- Preset: Solid White -->
+          <button type="button" class="bg-chip" data-bg-type="color" data-color="#ffffff" title="أبيض للمتاجر وجوازات السفر">
+            <span class="swatch" style="background-color: #ffffff; border: 1px solid var(--border);"></span>
+            <span class="swatch-label" data-i18n="bgWhite">أبيض ناصع</span>
+          </button>
+
+          <!-- Preset: Deep Black -->
+          <button type="button" class="bg-chip" data-bg-type="color" data-color="#000000" title="أسود استوديو">
+            <span class="swatch" style="background-color: #000000;"></span>
+            <span class="swatch-label" data-i18n="bgBlack">أسود</span>
+          </button>
+
+          <!-- Preset: Passport / Studio Blue -->
+          <button type="button" class="bg-chip" data-bg-type="color" data-color="#0055a5" title="أزرق وثائق">
+            <span class="swatch" style="background-color: #0055a5;"></span>
+            <span class="swatch-label" data-i18n="bgPassportBlue">أزرق رسمي</span>
+          </button>
+
+          <!-- Preset: Studio Soft Gray -->
+          <button type="button" class="bg-chip" data-bg-type="color" data-color="#e2e8f0" title="رمادي تصوير">
+            <span class="swatch" style="background-color: #e2e8f0;"></span>
+            <span class="swatch-label" data-i18n="bgGray">رمادي استوديو</span>
+          </button>
+
+          <!-- Preset: Modern Sunset Gradient -->
+          <button type="button" class="bg-chip" data-bg-type="gradient" data-gradient="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" title="تدرج شروق الشمس">
+            <span class="swatch" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);"></span>
+            <span class="swatch-label" data-i18n="bgGradientSunset">شروق</span>
+          </button>
+
+          <!-- Preset: Ocean Indigo Gradient -->
+          <button type="button" class="bg-chip" data-bg-type="gradient" data-gradient="linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" title="تدرج أزرق سماوي">
+            <span class="swatch" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);"></span>
+            <span class="swatch-label" data-i18n="bgGradientOcean">أوشن</span>
+          </button>
+
+          <!-- Preset: Custom Color Picker -->
+          <div class="custom-color-picker-box">
+            <input type="color" id="customColorInput" value="#6366f1" class="color-picker-input" title="اختر لوناً مخصصاً">
+            <span class="custom-picker-label" data-i18n="bgCustomColor">لون مخصص</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action & Export Bar -->
+      <div class="workspace-export-bar">
+        <div class="image-meta-info" id="imageMetaInfo">
+          <span class="meta-item">
+            <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+            <strong id="metaDimensions">0 × 0 px</strong>
+          </span>
+          <span class="meta-item">
+            <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>
+            <span id="metaFileSize">0 KB</span>
+          </span>
+          <span class="badge badge-success" data-i18n="losslessBadge">PNG شفاف فائق الدقة (Lossless)</span>
+        </div>
+
+        <div class="export-buttons-group">
+          <!-- Primary Download: Transparent PNG -->
+          <button type="button" class="btn btn-primary btn-lg" id="downloadTransparentBtn">
+            <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+            </svg>
+            <span data-i18n="downloadTransparent">تحميل PNG شفاف (الدقة الأصلية)</span>
+          </button>
+
+          <!-- Secondary Download: With Chosen Custom Background -->
+          <button type="button" class="btn btn-secondary btn-lg" id="downloadWithBgBtn">
+            <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v14a2 2 0 01-2 2zM12 7v10M7 12h10"/>
+            </svg>
+            <span data-i18n="downloadWithBg">تحميل بالخلفية المحددة</span>
+          </button>
+
+          <!-- Process New Image Button -->
+          <button type="button" class="btn btn-ghost" id="newImageBtn" title="رفع صورة جديدة">
+            <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            <span data-i18n="uploadAnotherBtn">صورة جديدة</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features & Architecture Highlights Section -->
+    <section class="features-section">
+      <div class="features-grid">
+        <!-- Feature 1 -->
+        <div class="feature-card">
+          <div class="feature-icon-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+          <h3 class="feature-title" data-i18n="feature1Title">صفر خوادم، خصوصية مطلقة</h3>
+          <p class="feature-desc" data-i18n="feature1Desc">
+            لا يتم نقل أو رفع أي بكسل من صورك إلى الإنترنت. كل الحسابات تنفذ بداخل معالج رسوميات جهازك (GPU) عبر WebGPU و WebAssembly.
+          </p>
+        </div>
+
+        <!-- Feature 2 -->
+        <div class="feature-card">
+          <div class="feature-icon-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 6v6l4 2"/>
+            </svg>
+          </div>
+          <h3 class="feature-title" data-i18n="feature2Title">نموذج RMBG-1.4 المتفوق</h3>
+          <p class="feature-desc" data-i18n="feature2Desc">
+            أقوى نموذج مفتوح المصدر مدرب على ملايين الصور لعزل أدق خصلات الشعر وتفاصيل الوجه والمنتجات التجارية مثل PhotoRoom.
+          </p>
+        </div>
+
+        <!-- Feature 3 -->
+        <div class="feature-card">
+          <div class="feature-icon-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+            </svg>
+          </div>
+          <h3 class="feature-title" data-i18n="feature3Title">استضافة مجانية ثابتة</h3>
+          <p class="feature-desc" data-i18n="feature3Desc">
+            ملفات HTML/CSS/JS نقية تماماً بدون باكنج (Zero Backend). جاهزة للنشر بنقرة واحدة على GitHub Pages أو استضافة Hostinger مشتركة.
+          </p>
+        </div>
+
+        <!-- Feature 4 -->
+        <div class="feature-card">
+          <div class="feature-icon-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
+            </svg>
+          </div>
+          <h3 class="feature-title" data-i18n="feature4Title">تصدير جماعي ZIP</h3>
+          <p class="feature-desc" data-i18n="feature4Desc">
+            عالج عشرات الصور بالتسلسل واستخرج جميع النتائج بملف مضغوط موحد، مع إمكانية استبدال الخلفية بألوان أو تدرجات مخصصة.
+          </p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="app-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <span class="footer-title">خلفيتي AI - Khalfyati AI</span>
+        <span class="footer-copy">© 2026 جميع الحقوق محفوظة | مفتوح المصدر للاستخدام التجاري والشخصي</span>
+      </div>
+      <div class="footer-links">
+        <a href="https://huggingface.co/briaai/RMBG-1.4" target="_blank" rel="noopener noreferrer">Bria AI RMBG-1.4</a>
+        <a href="https://github.com/huggingface/transformers.js" target="_blank" rel="noopener noreferrer">Transformers.js</a>
+        <a href="https://github.com" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Offscreen Helper Canvas (for lossless pixel manipulation & export) -->
+  <canvas id="offscreenCanvas" class="visually-hidden"></canvas>
+
+  <!-- Application Logic Scripts -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>
